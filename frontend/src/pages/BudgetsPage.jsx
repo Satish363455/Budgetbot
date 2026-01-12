@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import axiosInstance from "../api/axios";
 
+/* ✅ USD formatter */
+function formatUSD(n) {
+  const num = Number(n || 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
 export default function BudgetsPage() {
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
@@ -20,9 +31,10 @@ export default function BudgetsPage() {
 
   // Helpers
   const startOfMonth = useMemo(() => new Date(year, month - 1, 1), [year, month]);
-  const endOfMonth = useMemo(() => new Date(year, month, 0, 23, 59, 59, 999), [year, month]);
-
-  const money = (n) => `₹${Number(n || 0)}`;
+  const endOfMonth = useMemo(
+    () => new Date(year, month, 0, 23, 59, 59, 999),
+    [year, month]
+  );
 
   // ✅ Fetch transactions (current month expenses)
   const fetchTransactions = async () => {
@@ -64,12 +76,10 @@ export default function BudgetsPage() {
   const allCategories = useMemo(() => {
     const set = new Set();
 
-    // from txns
     for (const t of transactions) {
       if (t?.category) set.add(String(t.category).trim());
     }
 
-    // from budgets
     for (const b of budgets) {
       if (b?.category) set.add(String(b.category).trim());
     }
@@ -102,15 +112,14 @@ export default function BudgetsPage() {
     return map;
   }, [budgets]);
 
-  // ✅ Combined rows for "All categories"
+  // ✅ Combined rows
   const rows = useMemo(() => {
     return allCategories.map((cat) => {
       const spent = Number(spentByCategory[cat] || 0);
       const entry = limitByCategory[cat];
       const lim = entry ? Number(entry.limit || 0) : 0;
 
-      // status
-      let status = "no_limit"; // no limit set
+      let status = "no_limit";
       let percent = 0;
       if (lim > 0) {
         percent = (spent / lim) * 100;
@@ -130,10 +139,7 @@ export default function BudgetsPage() {
     });
   }, [allCategories, spentByCategory, limitByCategory]);
 
-  // ✅ Dropdown options
-  const categoryOptions = useMemo(() => {
-    return ["", ...allCategories];
-  }, [allCategories]);
+  const categoryOptions = useMemo(() => ["", ...allCategories], [allCategories]);
 
   const chosenCategory = useMemo(() => {
     const typed = newCategory.trim();
@@ -181,7 +187,6 @@ export default function BudgetsPage() {
     }
   };
 
-  // Quick set button
   const setFromRow = (cat) => {
     setSelectedCategory(cat);
     setNewCategory("");
@@ -208,10 +213,7 @@ export default function BudgetsPage() {
       {loading ? <p>Loading...</p> : null}
       {error ? <p style={{ color: "tomato" }}>{error}</p> : null}
 
-      <form
-        onSubmit={handleSaveLimit}
-        style={{ display: "grid", gap: 10, maxWidth: 520 }}
-      >
+      <form onSubmit={handleSaveLimit} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
         <select
           value={selectedCategory}
           onChange={(e) => {
@@ -239,7 +241,7 @@ export default function BudgetsPage() {
         />
 
         <input
-          placeholder="Enter limit (₹)"
+          placeholder="Enter limit ($)"
           type="number"
           value={limit}
           onChange={(e) => setLimit(e.target.value)}
@@ -259,11 +261,7 @@ export default function BudgetsPage() {
           {rows.map((r) => (
             <div
               key={r.category}
-              style={{
-                border: "1px solid #333",
-                borderRadius: 12,
-                padding: 14,
-              }}
+              style={{ border: "1px solid #333", borderRadius: 12, padding: 14 }}
             >
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <div style={{ fontWeight: 800 }}>{r.category}</div>
@@ -280,8 +278,8 @@ export default function BudgetsPage() {
               </div>
 
               <div style={{ marginTop: 8, color: "#bbb" }}>
-                Limit: {r.limit > 0 ? money(r.limit) : "Not set"} · Spent (this month):{" "}
-                {money(r.spent)}
+                Limit: {r.limit > 0 ? formatUSD(r.limit) : "Not set"} · Spent (this month):{" "}
+                {formatUSD(r.spent)}
               </div>
             </div>
           ))}
@@ -301,18 +299,14 @@ export default function BudgetsPage() {
             .map((r) => (
               <div
                 key={r.category}
-                style={{
-                  border: "1px solid #333",
-                  borderRadius: 12,
-                  padding: 14,
-                }}
+                style={{ border: "1px solid #333", borderRadius: 12, padding: 14 }}
               >
                 <div style={{ fontWeight: 800, color: statusColor(r.status) }}>
                   {statusLabel(r.status)} — {r.category}
                 </div>
 
                 <div style={{ marginTop: 6, color: "#bbb" }}>
-                  Spent: {money(r.spent)} / Limit: {money(r.limit)}
+                  Spent: {formatUSD(r.spent)} / Limit: {formatUSD(r.limit)}
                   {r.limit > 0 ? ` (${Math.round(r.percent)}%)` : ""}
                 </div>
               </div>
