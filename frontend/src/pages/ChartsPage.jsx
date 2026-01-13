@@ -14,21 +14,42 @@ import {
   CartesianGrid,
 } from "recharts";
 
-const PIE_COLORS = ["#8dd3c7", "#80b1d3", "#fdb462", "#b3de69", "#fb8072", "#bebada"];
+const PIE_COLORS = ["#8dd3c7","#80b1d3","#fdb462","#b3de69","#fb8072","#bebada"];
 
-/* ✅ USD formatter */
-function formatUSD(n) {
-  const num = Number(n || 0);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(num);
+const formatUSD = (n) =>
+  `$${Number(n || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+/** ✅ Same grouping rules as Transactions page */
+const CATEGORY_GROUPS = {
+  Food: [
+    "food","restaurant","dining","groceries","grocery","coffee","snacks","swiggy","zomato",
+  ],
+  Travel: [
+    "gas","fuel","petrol","diesel","uber","ola","lyft","taxi","train","bus","flight","tickets","parking","toll",
+  ],
+  Rent: ["rent","lease","house rent"],
+  Utilities: ["electric","electricity","water","wifi","internet","phone","gas bill"],
+  Shopping: ["shopping","amazon","flipkart","clothes","electronics","mall"],
+  Entertainment: ["movie","netflix","spotify","games","party","outing"],
+  Health: ["doctor","medicine","hospital","pharmacy","gym"],
+  Education: ["course","udemy","books","college","fees"],
+  Savings: ["savings","investment","sip","stocks"],
+};
+
+const norm = (s) => String(s || "").trim().toLowerCase();
+
+function getGroup(category) {
+  const c = norm(category);
+  for (const [group, keys] of Object.entries(CATEGORY_GROUPS)) {
+    if (keys.some((k) => c === norm(k) || c.includes(norm(k)))) return group;
+  }
+  return "Other";
 }
 
 function monthKey(year, monthIndex) {
-  // monthIndex: 0-11
   return `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
 }
 
@@ -40,21 +61,26 @@ export default function ChartsPage() {
     year = new Date().getFullYear(),
   } = useOutletContext() || {};
 
-  // 1) Expenses by category (Pie)
+  /** ✅ 1) Expenses by GROUP (Pie) */
   const expensesByCategory = useMemo(() => {
     const map = new Map();
+
     for (const t of transactions) {
       if ((t.type || "").toLowerCase() !== "expense") continue;
-      const cat = String(t.category || "Other").trim() || "Other";
+
+      const original = String(t.category || "Other").trim() || "Other";
+      const group = getGroup(original);           // ✅ group here
       const amt = Number(t.amount || 0);
-      map.set(cat, (map.get(cat) || 0) + amt);
+
+      map.set(group, (map.get(group) || 0) + amt);
     }
+
     const data = Array.from(map.entries()).map(([name, value]) => ({ name, value }));
     data.sort((a, b) => b.value - a.value);
     return data;
   }, [transactions]);
 
-  // 2) Income vs Expense (last 6 months)
+  /** 2) Income vs Expense (last 6 months) */
   const incomeExpenseLast6 = useMemo(() => {
     const buckets = [];
     for (let i = 5; i >= 0; i--) {
@@ -92,29 +118,36 @@ export default function ChartsPage() {
     }));
   }, [transactions, month, year]);
 
-  // 3) Budget Progress (this month)
+  /** ✅ 3) Budget Progress (grouped budgets too) */
   const budgetProgress = useMemo(() => {
     const spentMap = new Map();
 
     for (const t of transactions) {
       if ((t.type || "").toLowerCase() !== "expense") continue;
-      const cat = String(t.category || "Other").trim() || "Other";
+      const group = getGroup(t.category);
       const amt = Number(t.amount || 0);
-      spentMap.set(cat, (spentMap.get(cat) || 0) + amt);
+      spentMap.set(group, (spentMap.get(group) || 0) + amt);
     }
 
-    const rows = (Array.isArray(budgets) ? budgets : [])
-      .map((b) => {
-        const cat = String(b.category || "Other").trim() || "Other";
-        const limit = Number(b.limit ?? b.amount ?? 0);
-        const spent = Number(spentMap.get(cat) || 0);
+    // budgets: if your budget categories are raw (Food/Gas/Restaurant)
+    // this will group them too.
+    const limitMap = new Map();
+    for (const b of Array.isArray(budgets) ? budgets : []) {
+      const group = getGroup(b.category);
+      const limit = Number(b.limit ?? b.amount ?? 0);
+      limitMap.set(group, (limitMap.get(group) || 0) + limit);
+    }
+
+    const rows = Array.from(limitMap.entries())
+      .map(([category, limit]) => {
+        const spent = Number(spentMap.get(category) || 0);
         const pct = limit > 0 ? (spent / limit) * 100 : 0;
 
         let status = "Safe";
         if (pct >= 100) status = "Exceeded";
         else if (pct >= 80) status = "Warning";
 
-        return { category: cat, limit, spent, pct, status };
+        return { category, limit, spent, pct, status };
       })
       .filter((r) => r.limit > 0);
 
@@ -130,7 +163,7 @@ export default function ChartsPage() {
 
       {/* Pie */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Expenses by Category</h3>
+        <h3 style={{ marginTop: 0 }}>Expenses by Category (Grouped)</h3>
         {expensesByCategory.length === 0 ? (
           <p className="muted">No expenses yet.</p>
         ) : (
@@ -178,7 +211,7 @@ export default function ChartsPage() {
 
       {/* Budget Progress */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Budget Progress (This Month)</h3>
+        <h3 style={{ marginTop: 0 }}>Budget Progress (This Month) — Grouped</h3>
 
         {budgetProgress.length === 0 ? (
           <p className="muted">Add budgets to see progress bars.</p>
@@ -199,11 +232,7 @@ export default function ChartsPage() {
                   <div className="muted">
                     {formatUSD(r.spent)} / {formatUSD(r.limit)} • {Math.round(r.pct)}% •{" "}
                     <b>
-                      {r.status === "Exceeded"
-                        ? "🚨 Exceeded"
-                        : r.status === "Warning"
-                        ? "⚠️ Warning"
-                        : "✅ Safe"}
+                      {r.status === "Exceeded" ? "🚨 Exceeded" : r.status === "Warning" ? "⚠️ Warning" : "✅ Safe"}
                     </b>
                   </div>
                 </div>

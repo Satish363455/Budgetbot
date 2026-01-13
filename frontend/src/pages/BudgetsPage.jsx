@@ -1,16 +1,57 @@
 import { useEffect, useMemo, useState } from "react";
 import axiosInstance from "../api/axios";
 
-/* ✅ USD formatter */
-function formatUSD(n) {
-  const num = Number(n || 0);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(num);
+const CATEGORY_RULES = [
+  // Food
+  { match: ["restaurant", "restaurants", "dining", "eat", "eating", "food", "groceries", "grocery", "cafe", "coffee"], to: "Food" },
+
+  // Travel
+  { match: ["gas", "fuel", "petrol", "diesel", "uber", "ola", "taxi", "cab", "bus", "train", "flight", "tickets", "travel", "transport"], to: "Travel" },
+
+  // Rent / Housing
+  { match: ["rent", "lease", "housing", "apartment", "mortgage"], to: "Rent" },
+
+  // Utilities
+  { match: ["utility", "utilities", "electric", "electricity", "water", "internet", "wifi", "phone", "mobile", "bill", "bills"], to: "Utilities" },
+
+  // Shopping
+  { match: ["shopping", "amazon", "flipkart", "clothes", "clothing", "fashion", "mall"], to: "Shopping" },
+
+  // Health
+  { match: ["health", "hospital", "doctor", "medicine", "pharmacy", "medical"], to: "Health" },
+
+  // Entertainment
+  { match: ["movie", "movies", "netflix", "spotify", "entertainment", "games", "game"], to: "Entertainment" },
+];
+
+const MAIN_CATEGORIES = [
+  "Food",
+  "Travel",
+  "Rent",
+  "Utilities",
+  "Shopping",
+  "Health",
+  "Entertainment",
+  "Other",
+];
+
+function normalizeCategory(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "Other";
+
+  for (const rule of CATEGORY_RULES) {
+    for (const token of rule.match) {
+      if (s.includes(token)) return rule.to;
+    }
+  }
+  return "Other";
 }
+
+const formatUSD = (n) =>
+  `$${Number(n || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 export default function BudgetsPage() {
   const [transactions, setTransactions] = useState([]);
@@ -20,8 +61,7 @@ export default function BudgetsPage() {
   const [error, setError] = useState("");
 
   // Form
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [newCategory, setNewCategory] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("Food");
   const [limit, setLimit] = useState("");
 
   // Current month/year
@@ -29,14 +69,12 @@ export default function BudgetsPage() {
   const month = now.getMonth() + 1; // 1-12
   const year = now.getFullYear();
 
-  // Helpers
   const startOfMonth = useMemo(() => new Date(year, month - 1, 1), [year, month]);
   const endOfMonth = useMemo(
     () => new Date(year, month, 0, 23, 59, 59, 999),
     [year, month]
   );
 
-  // ✅ Fetch transactions (current month expenses)
   const fetchTransactions = async () => {
     const params = {
       type: "expense",
@@ -47,11 +85,8 @@ export default function BudgetsPage() {
     setTransactions(res.data || []);
   };
 
-  // ✅ Fetch budgets (current month)
   const fetchBudgets = async () => {
-    const res = await axiosInstance.get("/budgets", {
-      params: { month, year },
-    });
+    const res = await axiosInstance.get("/budgets", { params: { month, year } });
     setBudgets(res.data || []);
   };
 
@@ -72,51 +107,33 @@ export default function BudgetsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Categories from transactions + budgets
-  const allCategories = useMemo(() => {
-    const set = new Set();
-
-    for (const t of transactions) {
-      if (t?.category) set.add(String(t.category).trim());
-    }
-
-    for (const b of budgets) {
-      if (b?.category) set.add(String(b.category).trim());
-    }
-
-    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b));
-  }, [transactions, budgets]);
-
-  // ✅ Spent per category (this month)
-  const spentByCategory = useMemo(() => {
+  // Spent per MAIN category
+  const spentByMainCategory = useMemo(() => {
     const map = {};
     for (const t of transactions) {
-      const cat = String(t.category || "").trim();
-      if (!cat) continue;
-      map[cat] = (map[cat] || 0) + Number(t.amount || 0);
+      const main = normalizeCategory(t?.category);
+      map[main] = (map[main] || 0) + Number(t?.amount || 0);
     }
     return map;
   }, [transactions]);
 
-  // ✅ Limit per category (this month)
-  const limitByCategory = useMemo(() => {
+  // Budget limit per MAIN category
+  const limitByMainCategory = useMemo(() => {
     const map = {};
     for (const b of budgets) {
-      const cat = String(b.category || "").trim();
-      if (!cat) continue;
-      map[cat] = {
-        _id: b._id,
-        limit: Number(b.limit || 0),
-      };
+      const main = MAIN_CATEGORIES.includes(b?.category)
+        ? b.category
+        : normalizeCategory(b?.category);
+      map[main] = { _id: b._id, limit: Number(b.limit || 0) };
     }
     return map;
   }, [budgets]);
 
-  // ✅ Combined rows
+  // Rows (MAIN categories only)
   const rows = useMemo(() => {
-    return allCategories.map((cat) => {
-      const spent = Number(spentByCategory[cat] || 0);
-      const entry = limitByCategory[cat];
+    return MAIN_CATEGORIES.map((cat) => {
+      const spent = Number(spentByMainCategory[cat] || 0);
+      const entry = limitByMainCategory[cat];
       const lim = entry ? Number(entry.limit || 0) : 0;
 
       let status = "no_limit";
@@ -137,46 +154,31 @@ export default function BudgetsPage() {
         status,
       };
     });
-  }, [allCategories, spentByCategory, limitByCategory]);
+  }, [spentByMainCategory, limitByMainCategory]);
 
-  const categoryOptions = useMemo(() => ["", ...allCategories], [allCategories]);
-
-  const chosenCategory = useMemo(() => {
-    const typed = newCategory.trim();
-    if (typed) return typed;
-    return selectedCategory.trim();
-  }, [newCategory, selectedCategory]);
-
-  // ✅ Save limit (upsert)
   const handleSaveLimit = async (e) => {
     e.preventDefault();
     setError("");
 
-    const cat = chosenCategory;
     const lim = Number(limit);
-
-    if (!cat) return setError("Please select or type a category");
+    if (!selectedCategory) return setError("Please select a category");
     if (!lim || lim <= 0) return setError("Please enter a valid limit (> 0)");
 
     try {
       await axiosInstance.post("/budgets", {
-        category: cat,
+        category: selectedCategory,
         limit: lim,
         month,
         year,
       });
 
       setLimit("");
-      setSelectedCategory("");
-      setNewCategory("");
-
       await fetchBudgets();
     } catch (err) {
       setError(err.response?.data?.message || "Failed to save limit");
     }
   };
 
-  // ✅ Delete limit
   const handleDeleteLimit = async (budgetId) => {
     setError("");
     try {
@@ -187,16 +189,11 @@ export default function BudgetsPage() {
     }
   };
 
-  const setFromRow = (cat) => {
-    setSelectedCategory(cat);
-    setNewCategory("");
-  };
-
   const statusColor = (status) => {
-    if (status === "over") return "tomato";
-    if (status === "near") return "orange";
-    if (status === "ok") return "lightgreen";
-    return "#bbb";
+    if (status === "over") return "#ff6b6b";
+    if (status === "near") return "#ffc759";
+    if (status === "ok") return "#51cf66";
+    return "rgba(255,255,255,0.7)";
   };
 
   const statusLabel = (status) => {
@@ -206,113 +203,144 @@ export default function BudgetsPage() {
     return "ℹ️ No limit set";
   };
 
+  // ✅ ONLY SHOW ALREADY FIXED (limit > 0)
+  const fixedRows = useMemo(() => rows.filter((r) => r.limit > 0), [rows]);
+
   return (
-    <div style={{ maxWidth: 720 }}>
-      <h2>Set Budget Limit</h2>
+    <div className="card" style={{ maxWidth: 820 }}>
+      <h2 className="h2" style={{ marginTop: 0 }}>Budgets</h2>
+      <div className="muted" style={{ marginBottom: 10 }}>
+        Month: <b>{month}/{year}</b>
+      </div>
 
-      {loading ? <p>Loading...</p> : null}
-      {error ? <p style={{ color: "tomato" }}>{error}</p> : null}
+      {loading ? <p className="muted">Loading…</p> : null}
+      {error ? <p style={{ color: "#ff6b6b" }}>{error}</p> : null}
 
-      <form onSubmit={handleSaveLimit} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
-        <select
-          value={selectedCategory}
-          onChange={(e) => {
-            setSelectedCategory(e.target.value);
-            setNewCategory("");
-          }}
-        >
-          <option value="">Select category</option>
-          {categoryOptions
-            .filter((c) => c !== "")
-            .map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
+      {/* Set Budget Limit (still available at top) */}
+      <div className="card" style={{ marginTop: 12 }}>
+        <h3 style={{ marginTop: 0 }}>Set Budget Limit</h3>
+
+        <form onSubmit={handleSaveLimit} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <select
+            className="select"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            {MAIN_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
             ))}
-        </select>
+          </select>
 
-        <input
-          placeholder="Or type new category (example: Travel)"
-          value={newCategory}
-          onChange={(e) => {
-            setNewCategory(e.target.value);
-            if (e.target.value.trim()) setSelectedCategory("");
-          }}
-        />
+          <input
+            className="input"
+            placeholder="Enter limit ($)"
+            type="number"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+          />
 
-        <input
-          placeholder="Enter limit ($)"
-          type="number"
-          value={limit}
-          onChange={(e) => setLimit(e.target.value)}
-        />
+          <button className="btn" type="submit">Save Limit</button>
+        </form>
+      </div>
 
-        <button type="submit">Save Limit</button>
-      </form>
+      {/* ✅ Category Limits (ONLY FIXED) */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3 style={{ marginTop: 0 }}>Category Limits</h3>
 
-      <hr style={{ margin: "18px 0" }} />
-
-      <h2>Category Limits (All)</h2>
-
-      {rows.length === 0 ? (
-        <p>No categories yet. Add a transaction first.</p>
-      ) : (
-        <div style={{ display: "grid", gap: 12, maxWidth: 640 }}>
-          {rows.map((r) => (
-            <div
-              key={r.category}
-              style={{ border: "1px solid #333", borderRadius: 12, padding: 14 }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div style={{ fontWeight: 800 }}>{r.category}</div>
-
-                {r.limit > 0 && r.budgetId ? (
-                  <button type="button" onClick={() => handleDeleteLimit(r.budgetId)}>
-                    Delete
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => setFromRow(r.category)}>
-                    Set
-                  </button>
-                )}
-              </div>
-
-              <div style={{ marginTop: 8, color: "#bbb" }}>
-                Limit: {r.limit > 0 ? formatUSD(r.limit) : "Not set"} · Spent (this month):{" "}
-                {formatUSD(r.spent)}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <hr style={{ margin: "18px 0" }} />
-
-      <h2>Budget Warnings (This Month)</h2>
-
-      {rows.filter((r) => r.limit > 0).length === 0 ? (
-        <p>No limits set yet.</p>
-      ) : (
-        <div style={{ display: "grid", gap: 12, maxWidth: 640 }}>
-          {rows
-            .filter((r) => r.limit > 0)
-            .map((r) => (
+        {fixedRows.length === 0 ? (
+          <p className="muted">No limits set yet. Add a limit above.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {fixedRows.map((r) => (
               <div
                 key={r.category}
-                style={{ border: "1px solid #333", borderRadius: 12, padding: 14 }}
+                style={{
+                  padding: 14,
+                  borderRadius: 14,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
               >
-                <div style={{ fontWeight: 800, color: statusColor(r.status) }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>{r.category}</div>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    Limit: {formatUSD(r.limit)} · Spent: {formatUSD(r.spent)}
+                  </div>
+                </div>
+
+                {/* ✅ only Delete (no Set button anymore) */}
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => handleDeleteLimit(r.budgetId)}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Budget Warnings (ONLY FIXED) */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <h3 style={{ marginTop: 0 }}>Budget Warnings</h3>
+
+        {fixedRows.length === 0 ? (
+          <p className="muted">No limits set yet.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {fixedRows.map((r) => (
+              <div
+                key={r.category}
+                style={{
+                  padding: 14,
+                  borderRadius: 14,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                }}
+              >
+                <div style={{ fontWeight: 900, color: statusColor(r.status) }}>
                   {statusLabel(r.status)} — {r.category}
                 </div>
 
-                <div style={{ marginTop: 6, color: "#bbb" }}>
+                <div className="muted" style={{ marginTop: 6 }}>
                   Spent: {formatUSD(r.spent)} / Limit: {formatUSD(r.limit)}
                   {r.limit > 0 ? ` (${Math.round(r.percent)}%)` : ""}
                 </div>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.10)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(100, r.percent)}%`,
+                      background:
+                        r.status === "over"
+                          ? "rgba(255,107,107,0.85)"
+                          : r.status === "near"
+                          ? "rgba(255,199,89,0.85)"
+                          : "rgba(81,207,102,0.85)",
+                    }}
+                  />
+                </div>
               </div>
             ))}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
