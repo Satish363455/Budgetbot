@@ -10,21 +10,21 @@ import budgetRoutes from "./src/routes/budgetRoutes.js";
 dotenv.config();
 const app = express();
 
-// ✅ Replace ONLY this CORS block
+// ✅ allow local dev + your Cloudflare frontend
 const allowedOrigins = [
   "http://localhost:5173",
-  process.env.CLIENT_URL, // set this on Render to your Cloudflare/Vercel URL
-].filter(Boolean);
+  "https://budgetbot.pages.dev",
+  // If you use a preview URL sometimes, you can add it here too:
+  // "https://<your-project>.pages.dev",
+];
 
 app.use(
   cors({
-    origin: (origin, cb) => {
-      // allow requests with no origin (Postman/curl)
+    origin: function (origin, cb) {
+      // allow requests with no origin (like Postman)
       if (!origin) return cb(null, true);
-
       if (allowedOrigins.includes(origin)) return cb(null, true);
-
-      return cb(new Error(`CORS blocked: ${origin}`));
+      return cb(new Error("Not allowed by CORS: " + origin));
     },
     credentials: true,
   })
@@ -41,7 +41,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/budgets", budgetRoutes);
 
+// ✅ Render requires process.env.PORT
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
-);
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
