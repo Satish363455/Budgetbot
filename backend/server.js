@@ -14,6 +14,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "https://budgetbot.pages.dev",
+  "https://budgetbot.pages.dev/",
   // If you use a preview URL sometimes, you can add it here too:
   // "https://<your-project>.pages.dev",
 ];
