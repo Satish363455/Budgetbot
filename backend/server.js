@@ -10,16 +10,25 @@ import budgetRoutes from "./src/routes/budgetRoutes.js";
 dotenv.config();
 const app = express();
 
-const allowedOrigins = new Set([
+const defaultAllowed = [
   "http://localhost:5173",
   "https://budgetbot.pages.dev",
-]);
+];
+
+const envAllowed = [
+  process.env.FRONTEND_URL,
+  ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : []),
+].filter(Boolean);
+
+const allowedOrigins = [...new Set([...defaultAllowed, ...envAllowed])];
 
 const corsOptions = {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // Postman/curl
-    if (allowedOrigins.has(origin)) return cb(null, true);
-    return cb(new Error(`CORS blocked: ${origin}`), false);
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // Postman/curl
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    console.log("❌ Blocked by CORS:", origin);
+    return callback(new Error(`CORS blocked: ${origin}`), false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -27,12 +36,16 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// ✅ IMPORTANT: don’t use "*" here (it can crash). Use a regex instead:
 app.options(/.*/, cors(corsOptions));
 
 app.use(express.json());
 connectDB();
 
-app.get("/", (req, res) => res.send("BudgetBot backend is running..."));
+app.get("/", (req, res) => {
+  res.send("BudgetBot backend is running...");
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/transactions", transactionRoutes);
